@@ -1,385 +1,265 @@
-# Endee: High-Performance Open Source Vector Database
+# 🎯 Placement Prep AI Assistant
 
-**Endee (nD)** is a specialized, high-performance vector database built for speed and efficiency. This guide covers supported platforms, dependency requirements, and detailed build instructions using both our automated installer and manual CMake configuration.
+> An intelligent RAG-powered Q&A assistant that helps engineering students prepare for placement interviews using **Endee Vector Database** + **Google Gemini**.
 
-there are 3 ways to build and run endee:
-1. quick installation and run using install.sh and run.sh scripts
-2. manual build using cmake
-3. using docker
-
-also you can run endee using docker from docker hub without building it locally. refer to section 4 for more details.
-
----
-
-## System Requirements
-
-Before installing, ensure your system meets the following hardware and operating system requirements.
-
-### Supported Operating Systems
-
-* **Linux**: Ubuntu(22.04, 24.04, 25.04) Debian(12, 13), Rocky(8, 9, 10), Centos(8, 9, 10), Fedora(40, 42, 43)
-* **macOS**: Apple Silicon (M Series) only.
-
-### Required Dependencies
-
-The following packages are required for compilation.
-
- `clang-19`, `cmake`, `build-essential`, `libssl-dev`, `libcurl4-openssl-dev`
-
-> **Note:** The build system requires **Clang 19** (or a compatible recent Clang version) supporting C++20.
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red?logo=streamlit)
+![Endee](https://img.shields.io/badge/Vector%20DB-Endee-6C3483)
+![Gemini](https://img.shields.io/badge/LLM-Gemini%201.5%20Flash-orange?logo=google)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
-## 1. Quick Installation (Recommended)
+## 📖 Problem Statement
 
-The easiest way to build **ndd** is using the included `install.sh` script. This script handles OS detection, dependency checks, and configuration automatically.
+Engineering students preparing for campus placements face a fragmented learning experience — DSA, system design, HR rounds, and company-specific preparation are scattered across hundreds of resources. There's no single intelligent tool that:
 
-### Usage
+- Answers placement questions with **context-grounded accuracy**
+- Understands **semantic similarity** (not just keyword matching)
+- Covers **all interview domains** in one place
 
-First, ensure the script is executable:
-```bash
-chmod +x ./install.sh
+This project solves that by building a **Retrieval-Augmented Generation (RAG)** assistant where Endee serves as the high-performance semantic memory layer.
+
+---
+
+## 🏗️ System Design & Technical Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PLACEMENT PREP AI ASSISTANT                  │
+│                                                                 │
+│  ┌──────────────┐    ┌──────────────────────────────────────┐  │
+│  │  Streamlit   │    │         RAG Pipeline                 │  │
+│  │     UI       │◄───┤                                      │  │
+│  │              │    │  User Query                          │  │
+│  │  - Chat      │    │      │                               │  │
+│  │  - Browse    │    │      ▼                               │  │
+│  │  - Ingest    │    │  Gemini text-embedding-004           │  │
+│  └──────────────┘    │      │ (3078-dim query vector)        │  │
+│                       │      ▼                               │  │
+│                       │  ┌────────────────────┐             │  │
+│                       │  │   ENDEE VECTOR DB  │             │  │
+│                       │  │                    │             │  │
+│                       │  │  Index: cosine     │             │  │
+│                       │  │  Precision: INT8   │             │  │
+│                       │  │  Dim: 768          │             │  │
+│                       │  │  ~25 Q&A vectors   │             │  │
+│                       │  └────────────────────┘             │  │
+│                       │      │ top-k similar chunks         │  │
+│                       │      ▼                               │  │
+│                       │  Retrieved Context                   │  │
+│                       │      │                               │  │
+│                       │      ▼                               │  │
+│                       │  Gemini 1.5 Flash (generation)       │  │
+│                       │      │                               │  │
+│                       │      ▼                               │  │
+│                       │  Grounded Answer + Source Citations  │  │
+│                       └──────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Run the script from the root of the repository. You **must** provide arguments for the build mode and/or CPU optimization.
+### Component Breakdown
 
-```bash
-./install.sh [BUILD_MODE] [CPU_OPTIMIZATION]
+| Component        | Technology                     | Purpose                                                       |
+| ---------------- | ------------------------------ | ------------------------------------------------------------- |
+| **Vector Store** | Endee (self-hosted via Docker) | Store and retrieve 768-dim embeddings using cosine similarity |
+| **Embeddings**   | Google `text-embedding-004`    | Convert Q&A pairs and queries to dense vectors                |
+| **Generation**   | Google `gemini-1.5-flash`      | Generate context-grounded answers                             |
+| **UI**           | Streamlit                      | Chat interface, topic browser, ingestion panel                |
+| **Retrieval**    | Endee Python SDK               | Semantic top-k search over knowledge base                     |
+
+---
+
+## 🔍 How Endee is Used
+
+Endee is the **core semantic memory** of this application. Here's exactly how:
+
+### 1. Index Creation
+
+```python
+client.create_index(
+    name="placement_prep",
+    dimension=768,         # text-embedding-004 output size
+    space_type="cosine",   # cosine similarity for semantic search
+    precision=Precision.INT8  # memory-efficient quantization
+)
 ```
 
-### Build Arguments
+### 2. Ingesting the Knowledge Base
 
-You can combine one **Build Mode** and one **CPU Optimization** flag.
+Each Q&A pair is embedded using Gemini and stored in Endee with metadata:
 
-#### Build Modes
-
-| Flag | Description | CMake Equivalent |
-| --- | --- | --- |
-| `--release` | **Default.** Optimized release build. |  |
-| `--debug_all` | Enables full debugging symbols. | `-DND_DEBUG=ON -DDEBUG=ON` |
-| `--debug_nd` | Enables NDD-specific logging/timing. | `-DND_DEBUG=ON` |
-
-#### CPU Optimization Options
-
-Select the flag matching your hardware to enable SIMD optimizations.
-
-| Flag | Description | Target Hardware |
-| --- | --- | --- |
-| `--avx2` | Enables AVX2 (FMA, F16C) | Modern x86_64 Intel/AMD |
-| `--avx512` | Enables AVX512 (F, BW, VNNI, FP16) | Server-grade x86_64 (Xeon/Epyc) |
-| `--neon` | Enables NEON (FP16, DotProd) | Apple Silicon / ARMv8.2+ |
-| `--sve2` | Enables SVE2 (INT8/16, FP16) | ARMv9 / SVE2 compatible |
-
-> **Note:** The `--avx512` build configuration enforces mandatory runtime checks for specific instruction sets. To successfully run this build, your CPU must support **`avx512` (Foundation), `avx512_fp16`, `avx512_vnni`, `avx512bw`, and `avx512_vpopcntdq`**; if any of these extensions are missing, the database will fail to initialize and exit immediately to avoid runtime crashes.
-
-
-### Example Commands
-
-**Build for Production (Intel/AMD with AVX2):**
-
-```bash
-./install.sh --release --avx2
+```python
+index.upsert([{
+    "id": "dsa_001",
+    "vector": gemini_embedding,  # 768-dim float list
+    "meta": {
+        "topic": "DSA & Algorithms",
+        "question": "What is dynamic programming?",
+        "answer": "Dynamic Programming (DP)..."
+    }
+}])
 ```
 
-**Example Build for Debugging (Apple Silicon):**
+### 3. Semantic Retrieval at Query Time
 
-```bash
-./install.sh --debug_all --neon
+```python
+query_vector = gemini_embed(user_question)
+results = index.query(vector=query_vector, top_k=5)
+# Returns most semantically similar Q&A pairs
 ```
 
-### Running the Server
+Unlike keyword search, Endee retrieves answers based on **meaning** — asking _"explain memoization"_ correctly surfaces the dynamic programming answer because the concepts are semantically related.
 
-We provide a `run.sh` script to simplify running the server. It automatically detects the built binary and uses `ndd_data_dir=./data` by default.
+### 4. RAG Generation
 
-First, ensure the script is executable:
+Retrieved context is injected into a Gemini prompt:
 
-```bash
-chmod +x ./run.sh
 ```
-
-Then run the script:
-
-```bash
-./run.sh
-```
-
-This will automatically identify the latest binary and start the server.
-
-#### Options
-
-You can override the defaults using arguments:
-
-*   `ndd_data_dir=DIR`: Set the data directory.
-*   `binary_file=FILE`: Set the binary file to run.
-*   `ndd_auth_token=TOKEN`: Set the authentication token (leave empty/ignore to run without authentication).
-
-#### Examples
-
-**Run with custom data directory:**
-
-```bash
-./run.sh ndd_data_dir=./my_data
-```
-
-**Run specific binary:**
-
-```bash
-./run.sh binary_file=./build/ndd-avx2
-```
-
-**Run with authentication token:**
-
-```bash
-./run.sh ndd_auth_token=your_token
-```
-
-
-**Run with all options**
-
-```bash
-./run.sh ndd_data_dir=./my_data binary_file=./build/ndd-avx2 ndd_auth_token=your_token
-```
-
-**For Help**
-
-```bash
-./run.sh --help
-```
-
-
-## 2. Manual Build (Advanced)
-
-If you prefer to configure the build manually or integrate it into an existing install pipeline, you can use `cmake` directly.
-
-### Step 1: Prepare Build Directory
-
-```bash
-mkdir build && cd build
-```
-
-### Step 2: Configure
-
-Run `cmake` with the appropriate flags. You must manually define the compiler if it is not your system default.
-
-**Configuration Flags:**
-
-* **Debug Options:**
-* `-DDEBUG=ON` (Enable debug symbols/O0)
-* `-DND_DEBUG=ON` (Enable internal logging)
-
-
-* **SIMD Selectors (Choose One):**
-* `-DUSE_AVX2=ON`
-* `-DUSE_AVX512=ON`
-* `-DUSE_NEON=ON`
-* `-DUSE_SVE2=ON`
-
-
-**Example (x86_64 AVX512 Release):**
-
-```bash
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DUSE_AVX512=ON \
-      ..
-```
-
-### Step 3: Compile
-
-```bash
-make -j$(nproc)
-```
-
-### Running the Built Binary
-
-After a successful build, the binary will be generated in the `build/` directory.
-
-### Binary Naming
-
-The output binary name depends on the SIMD flag used during compilation:
-
-* `ndd-avx2`
-* `ndd-avx512`
-* `ndd-neon` (or `ndd-neon-darwin` for mac)
-* `ndd-sve2`
-
-A symlink called `ndd` links to the binary compiled for the current build.
-
-### Runtime Environment Variables
-
-Some environment variables **ndd** reads at runtime:
-
-* `NDD_DATA_DIR`: Defines the data directory
-* `NDD_AUTH_TOKEN`: Optional authentication token (see below)
-
-### Authentication
-
-**ndd** supports two authentication modes:
-
-**Open Mode (No Authentication)** - Default when `NDD_AUTH_TOKEN` is not set:
-```bash
-# All APIs work without authentication
-./build/ndd
-curl http://{{BASE_URL}}/api/v1/index/list
-```
-
-**Token Mode** - When `NDD_AUTH_TOKEN` is set:
-```bash
-# Generate a secure token
-export NDD_AUTH_TOKEN=$(openssl rand -hex 32)
-./build/ndd
-
-# All protected APIs require the token in Authorization header
-curl -H "Authorization: $NDD_AUTH_TOKEN" http://{{BASE_URL}}/api/v1/index/list
-```
-
-### Execution Example
-
-To run the database using the AVX2 binary and a local `data` folder:
-
-```bash
-# 1. Create the data directory
-mkdir -p ./data
-
-# 2. Export the environment variable and run
-export NDD_DATA_DIR=$(pwd)/data
-./build/ndd
-```
-
-Alternatively, as a single line:
-
-```bash
-NDD_DATA_DIR=./data ./build/ndd
+Retrieved Context: [top-k Q&A pairs from Endee]
+Student Question: [user's question]
+→ Grounded, accurate answer
 ```
 
 ---
 
+## 📚 Knowledge Base
 
+The pre-loaded dataset covers **25 Q&A pairs** across 6 placement domains:
 
-## 3. Docker Deployment
-
-We provide a Dockerfile for easy containerization. This ensures a consistent runtime environment and simplifies the deployment process across various platforms.
-
-### Build the Image
-
-You **must** specify the target architecture (`avx2`, `avx512`, `neon`, `sve2`) using the `BUILD_ARCH` build argument. You can optionally enable a debug build using the `DEBUG` argument.
-
-```bash
-# Production Build (AVX2) (for x86_64 systems)
-docker build --ulimit nofile=100000:100000 --build-arg BUILD_ARCH=avx2 -t endee-oss:latest -f ./infra/Dockerfile .
-
-# Debug Build (Neon) (for arm64, mac apple silicon)
-docker build --ulimit nofile=100000:100000 --build-arg BUILD_ARCH=neon --build-arg DEBUG=true -t endee-oss:latest -f ./infra/Dockerfile .
-```
-
-### Run the Container
-
-The container exposes port `8080` and stores data in `/data` inside container. You should persist this data using a docker volume.
-
-```bash
-docker run \
-  -p 8080:8080 \
-  -v endee-data:/data \
-  -e NDD_AUTH_TOKEN="your_secure_token" \
-  --name endee-server \
-  endee-oss:latest
-```
-
-leave `NDD_AUTH_TOKEN` empty or remove it to run endee without authentication.
-
-### Alternatively: Docker Compose
-
-You can also use `docker-compose` to run the service.
-
-1. Start the container:
-   ```bash
-   docker-compose up
-   ```
+| Topic                  | # of Q&As | Examples                                                 |
+| ---------------------- | --------- | -------------------------------------------------------- |
+| DSA & Algorithms       | 6         | DP, BFS/DFS, HashMap internals, Sliding Window           |
+| System Design          | 5         | URL Shortener, CAP theorem, Twitter Feed, Load Balancing |
+| OOPs & Design Patterns | 4         | SOLID, Singleton, Polymorphism, Abstract vs Interface    |
+| HR & Behavioural       | 4         | Tell me about yourself, STAR method, weakness question   |
+| Company-Specific       | 2         | Amazon Leadership Principles, Google hiring process      |
+| Core CS Subjects       | 3         | Deadlocks, TCP vs UDP, Virtual Memory                    |
 
 ---
 
-## 4. Running Docker container from registry
+## � Live Demo
 
-You can run Endee directly using the pre-built image from Docker Hub without building locally.
+> **Deployed application:** _<[HERE](https://om-suman-placement-prep-ai-app-yx3diy.streamlit.app/)>_
 
-### Using Docker Compose
+## �🚀 Setup & Running the Project
 
-Create a new directory for Endee:
+### Prerequisites
+
+- Python 3.10+
+- Docker & Docker Compose
+- Google Gemini API key (free at [aistudio.google.com](https://aistudio.google.com))
+
+### Step 1: Clone and Fork
 
 ```bash
-mkdir endee && cd endee
+# Fork https://github.com/endee-io/endee on GitHub, then:
+git clone https://github.com/<your-username>/endee
+cd endee
+
+# Clone this project separately
+git clone https://github.com/<your-username>/placement-prep-ai
+cd placement-prep-ai
 ```
 
-Inside this directory, create a file named `docker-compose.yml` and copy the following content into it:
+### Step 2: Start Endee Vector Database
 
-```yaml
-services:
-  endee:
-    image: endeeio/endee-server:latest
-    container_name: endee-server
-    ports:
-      - "8080:8080"
-    environment:
-      NDD_NUM_THREADS: 0
-      NDD_AUTH_TOKEN: ""  # Optional: set for authentication
-    volumes:
-      - endee-data:/data
-    restart: unless-stopped
-
-volumes:
-  endee-data:
-```
-
-Then run:
 ```bash
+# From the placement-prep-ai directory:
 docker compose up -d
+
+# Verify it's running:
+curl http://localhost:8080/api/v1/index/list
+# Expected: {"indexes": []}
 ```
 
-for more details visit [docs.endee.io](https://docs.endee.io/quick-start)
+### Step 3: Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4: Run the Streamlit App
+
+```bash
+# Option A: Pass API key via environment variable (recommended)
+export GEMINI_API_KEY="your_gemini_api_key_here"
+streamlit run app.py
+
+# Option B: Enter API key directly in the sidebar
+streamlit run app.py
+```
+
+The app opens at **http://localhost:8501**
+
+### Step 5: Load Knowledge Base
+
+1. Open the **"📥 Load Knowledge Base"** tab
+2. Enter your Gemini API key in the sidebar
+3. Click **"🚀 Ingest Knowledge Base"**
+4. Wait ~30 seconds for all 25 Q&As to be embedded and stored in Endee
+
+### Step 6: Start Asking!
+
+Go to the **"💬 Ask Questions"** tab and ask anything:
+
+- _"Explain dynamic programming with examples"_
+- _"How do I design a URL shortener?"_
+- _"What are Amazon's leadership principles?"_
 
 ---
 
-## Contribution
+## 📁 Project Structure
 
-We welcome contributions from the community to help make vector search faster and more accessible for everyone. To contribute:
-
-* **Submit Pull Requests**: Have a fix or a new feature? Fork the repo, create a branch, and send a PR.
-* **Report Issues**: Found a bug or a performance bottleneck? Open an issue on GitHub with steps to reproduce it.
-* **Suggest Improvements**: We are always looking to optimize performance; feel free to suggest new CPU target optimizations or architectural enhancements.
-* **Feature Requests**: If there is a specific functionality you need, start a discussion in the issues section.
-
----
-
-## License
-
-Endee is open source software licensed under the
-**Apache License 2.0**.
-
-You are free to use, modify, and distribute this software for
-personal, commercial, and production use.
-
-See the LICENSE file for full license terms.
+```
+placement-prep-ai/
+├── app.py               # Main Streamlit application
+├── requirements.txt     # Python dependencies
+├── docker-compose.yml   # Endee vector DB setup
+└── README.md            # This file
+```
 
 ---
 
-## Trademark and Branding
+## 🎨 Features
 
-“Endee” and the Endee logo are trademarks of Endee Labs.
-
-The Apache License 2.0 does **not** grant permission to use the Endee name,
-logos, or branding in a way that suggests endorsement or affiliation.
-
-If you offer a hosted or managed service based on this software, you must:
-- Use your own branding
-- Avoid implying it is an official Endee service
-
-For trademark or branding permissions, contact: enterprise@endee.io
+- ✅ **Semantic Search** — Finds relevant answers by meaning, not just keywords
+- ✅ **RAG Pipeline** — Gemini generates answers grounded in retrieved context
+- ✅ **Source Citations** — See which knowledge chunks were used with similarity scores
+- ✅ **Topic Filtering** — Focus questions on specific interview domains
+- ✅ **Quick Question Chips** — One-click common interview questions
+- ✅ **Chat History** — Full conversation context maintained in session
+- ✅ **Browse Mode** — Explore all Q&As organised by topic
+- ✅ **Adjustable top-k** — Control how many chunks feed into generation
 
 ---
 
-## Third-Party Software
+## 🔧 Configuration
 
-This project includes or depends on third-party software components that are
-licensed under their respective open source licenses.
+| Setting            | Default                 | Description                |
+| ------------------ | ----------------------- | -------------------------- |
+| `GEMINI_API_KEY`   | -                       | Google Gemini API key      |
+| `ENDEE_URL`        | `http://localhost:8080` | Endee server URL           |
+| `ENDEE_AUTH_TOKEN` | empty                   | Optional auth token        |
+| top-k              | 5                       | Number of retrieved chunks |
 
-Use of those components is governed by the terms and conditions of their
-individual licenses, not by the Apache License 2.0 for this project.
+---
+
+## 🤝 Contributing
+
+Pull requests welcome! Potential improvements:
+
+- Add PDF upload support for custom study material
+- Implement conversation memory across sessions using Endee metadata filters
+- Add more company-specific Q&As
+- Build a quiz/flashcard mode using random Endee vector retrieval
+
+---
+
+## 📜 License
+
+MIT License — see [LICENSE](LICENSE)
+
+---
+
+_Built as part of Endee.io SDE Internship Application | Placement Prep AI uses Endee as the vector database for all semantic retrieval operations._
